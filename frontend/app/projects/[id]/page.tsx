@@ -71,9 +71,9 @@ export default function ProjectPage({
             {project.description}
           </p>
         )}
-        {sections.length > 0 && (
-          <div className="mt-4">
-            {user ? (
+        <div className="mt-4 flex items-center gap-3">
+          {sections.length > 0 &&
+            (user ? (
               <Link
                 href={`/projects/${projectId}/session`}
                 className="inline-block rounded bg-black px-4 py-2 text-sm font-medium text-white dark:bg-white dark:text-black"
@@ -87,9 +87,17 @@ export default function ProjectPage({
               >
                 Log in to track your progress
               </Link>
+            ))}
+          {user &&
+            (user.id === project.owner_id || user.role === "admin") && (
+              <Link
+                href={`/projects/${projectId}/edit`}
+                className="text-sm underline underline-offset-4"
+              >
+                Edit
+              </Link>
             )}
-          </div>
-        )}
+        </div>
       </div>
 
       {sections.length === 0 ? (

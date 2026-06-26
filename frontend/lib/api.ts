@@ -137,11 +137,11 @@ async function tryRefresh(): Promise<boolean> {
   return true;
 }
 
-async function request<T>(
+async function requestWithResponse<T>(
   path: string,
   init: RequestInit = {},
   withAuth = false,
-): Promise<T> {
+): Promise<{ data: T; etag: string | null }> {
   let resp = await rawFetch(path, init, withAuth);
   if (resp.status === 401 && withAuth && getRefresh()) {
     if (await tryRefresh()) resp = await rawFetch(path, init, withAuth);
@@ -158,7 +158,22 @@ async function request<T>(
       typeof detail === "string" ? detail : JSON.stringify(detail),
     );
   }
-  return resp.status === 204 ? (undefined as T) : ((await resp.json()) as T);
+  const etag = resp.headers.get("ETag");
+  const data =
+    resp.status === 204 ? (undefined as T) : ((await resp.json()) as T);
+  return { data, etag };
+}
+
+async function request<T>(
+  path: string,
+  init: RequestInit = {},
+  withAuth = false,
+): Promise<T> {
+  return (await requestWithResponse<T>(path, init, withAuth)).data;
+}
+
+function ifMatch(version?: number): HeadersInit | undefined {
+  return version == null ? undefined : { "If-Match": String(version) };
 }
 
 // --- auth ---
@@ -210,6 +225,77 @@ export const createProject = (name: string, description?: string) =>
     { method: "POST", body: JSON.stringify({ name, description }) },
     true,
   );
+
+export const deleteProject = (projectId: number) =>
+  request<void>(`/projects/${projectId}`, { method: "DELETE" }, true);
+
+// --- authoring (owner only; If-Match -> new version via ETag) ---
+
+export type NewBlock = {
+  type: BlockType;
+  position?: number;
+  text_content?: string;
+  code_content?: string;
+  image_url?: string;
+  keyword_metadata?: string;
+  title?: string;
+};
+
+const num = (etag: string | null) => (etag ? Number(etag) : null);
+
+export async function createSection(
+  projectId: number,
+  body: { title?: string | null; position?: number },
+  version?: number,
+): Promise<{ section: Section; version: number | null }> {
+  const { data, etag } = await requestWithResponse<Section>(
+    `/projects/${projectId}/sections`,
+    { method: "POST", headers: ifMatch(version), body: JSON.stringify(body) },
+    true,
+  );
+  return { section: data, version: num(etag) };
+}
+
+export async function deleteSection(
+  projectId: number,
+  sectionId: number,
+  version?: number,
+): Promise<{ version: number | null }> {
+  const { etag } = await requestWithResponse<void>(
+    `/projects/${projectId}/sections/${sectionId}`,
+    { method: "DELETE", headers: ifMatch(version) },
+    true,
+  );
+  return { version: num(etag) };
+}
+
+export async function createBlock(
+  projectId: number,
+  sectionId: number,
+  body: NewBlock,
+  version?: number,
+): Promise<{ block: ContentBlock; version: number | null }> {
+  const { data, etag } = await requestWithResponse<ContentBlock>(
+    `/projects/${projectId}/sections/${sectionId}/blocks`,
+    { method: "POST", headers: ifMatch(version), body: JSON.stringify(body) },
+    true,
+  );
+  return { block: data, version: num(etag) };
+}
+
+export async function deleteBlock(
+  projectId: number,
+  sectionId: number,
+  blockId: number,
+  version?: number,
+): Promise<{ version: number | null }> {
+  const { etag } = await requestWithResponse<void>(
+    `/projects/${projectId}/sections/${sectionId}/blocks/${blockId}`,
+    { method: "DELETE", headers: ifMatch(version) },
+    true,
+  );
+  return { version: num(etag) };
+}
 
 // --- sections + blocks ---
 
