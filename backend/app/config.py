@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     reset_token_expire_minutes: int = 60
     # Used to build links in verification / reset emails.
     app_base_url: str = "http://localhost:8000"
+    # Browser origins allowed to call the API (the frontend). Override via
+    # CORS_ORIGINS as a JSON array, e.g. '["https://app.example.com"]'.
+    cors_origins: list[str] = ["http://localhost:3000"]
 
 
 settings = Settings()
