@@ -21,6 +21,7 @@ from app.db import (
     ReadingSessionORM,
     SessionLocal,
     SessionResponseORM,
+    UserORM,
     init_db,
 )
 from app.models import (
@@ -37,7 +38,31 @@ from app.models import (
     Section,
     SectionCreate,
     SnapshotSection,
+    User,
 )
+
+
+class UserStore:
+    def __init__(self) -> None:
+        init_db()
+
+    def get(self, user_id: int) -> Optional[User]:
+        with SessionLocal() as session:
+            row = session.get(UserORM, user_id)
+            return User.model_validate(row) if row is not None else None
+
+    def get_orm_by_email(self, email: str) -> Optional[UserORM]:
+        """Return the raw ORM row (incl. hashed_password) for login checks."""
+        with SessionLocal() as session:
+            return session.query(UserORM).filter_by(email=email).one_or_none()
+
+    def create(self, email: str, hashed_password: str) -> User:
+        with SessionLocal() as session:
+            row = UserORM(email=email, hashed_password=hashed_password)
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+            return User.model_validate(row)
 
 
 class ProjectStore:
@@ -54,9 +79,9 @@ class ProjectStore:
             row = session.get(ProjectORM, project_id)
             return Project.model_validate(row) if row is not None else None
 
-    def create(self, data: ProjectCreate) -> Project:
+    def create(self, data: ProjectCreate, owner_id: int) -> Project:
         with SessionLocal() as session:
-            row = ProjectORM(**data.model_dump())
+            row = ProjectORM(**data.model_dump(), owner_id=owner_id)
             session.add(row)
             session.commit()
             session.refresh(row)
@@ -418,10 +443,12 @@ def reset_db() -> None:
         session.execute(sa_delete(CheckpointORM))
         session.execute(sa_delete(ProjectSectionORM))
         session.execute(sa_delete(ProjectORM))
+        session.execute(sa_delete(UserORM))
         session.execute(text("DELETE FROM sqlite_sequence"))
         session.commit()
 
 
+user_store = UserStore()
 project_store = ProjectStore()
 section_store = SectionStore()
 block_store = ContentBlockStore()

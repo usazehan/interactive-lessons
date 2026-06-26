@@ -10,6 +10,7 @@ Run against whatever DATABASE_PATH points at (default interactive_lessons.db):
 
     python -m app.seed
 """
+from app.auth import hash_password
 from app.models import (
     BlockType,
     ContentBlockCreate,
@@ -17,7 +18,10 @@ from app.models import (
     ProjectCreate,
     SectionCreate,
 )
-from app.store import block_store, project_store, section_store
+from app.store import block_store, project_store, section_store, user_store
+
+SEED_AUTHOR_EMAIL = "author@example.com"
+SEED_AUTHOR_PASSWORD = "password123"
 
 SAMPLE_PROJECTS = [
     ProjectCreate(name="Onboarding", description="Intro project for new users."),
@@ -27,8 +31,13 @@ SAMPLE_PROJECTS = [
 
 
 def seed() -> list[Project]:
-    """Create the sample projects and a worked section. Returns the projects."""
-    projects = [project_store.create(p) for p in SAMPLE_PROJECTS]
+    """Create a sample author, their projects, and a worked section."""
+    author = user_store.get_orm_by_email(SEED_AUTHOR_EMAIL)
+    if author is None:
+        author = user_store.create(
+            SEED_AUTHOR_EMAIL, hash_password(SEED_AUTHOR_PASSWORD)
+        )
+    projects = [project_store.create(p, owner_id=author.id) for p in SAMPLE_PROJECTS]
 
     section = section_store.create(
         projects[0].id, SectionCreate(title="Getting started")
@@ -73,13 +82,13 @@ def seed() -> list[Project]:
 
 if __name__ == "__main__":
     created = seed()
-    print("Seeded projects:")
+    print("Seeded projects (owner: %s / %s):" % (SEED_AUTHOR_EMAIL, SEED_AUTHOR_PASSWORD))
     for project in created:
         print(f"  id={project.id}  {project.name}")
     print(
         "\nTry:\n"
-        f"  curl localhost:8000/projects/{created[0].id}/sections/1/blocks\n"
-        "  # a reader starts a pinned snapshot session:\n"
-        f"  curl -X POST localhost:8000/projects/{created[0].id}/sessions "
-        "-H 'Content-Type: application/json' -d '{\"user_id\": \"userA\"}'"
+        f"  curl localhost:8000/projects/{created[0].id}/sections/1/blocks   # public read\n"
+        "  # log in to author or to start a reading session:\n"
+        f"  curl -X POST localhost:8000/auth/login "
+        f"-d 'username={SEED_AUTHOR_EMAIL}&password={SEED_AUTHOR_PASSWORD}'"
     )

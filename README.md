@@ -15,11 +15,13 @@ app/
   models.py      # Pydantic request/response schemas
   db.py          # SQLAlchemy engine, session, ORM tables
   store.py       # repository mapping ORM <-> Pydantic (same interface as before)
+  auth.py        # password hashing, JWT, current-user dependency
   seed.py        # sample happy-path data (python -m app.seed)
   cleanup.py     # prune idle reading sessions (python -m app.cleanup)
   concurrency.py # optimistic-locking helper (If-Match -> 409)
   routers/
     health.py      # GET /health
+    auth.py        # register / login / me
     projects.py    # CRUD /projects
     sections.py    # CRUD /projects/{id}/sections
     blocks.py      # CRUD /projects/{id}/sections/{id}/blocks
@@ -27,6 +29,44 @@ app/
     sessions.py    # reader snapshots + responses /projects/{id}/sessions
 tests/           # unittest + TestClient (in-memory DB)
 ```
+
+## Authentication
+
+Register and log in for a JWT access token; send it as
+`Authorization: Bearer <token>` on protected requests.
+
+```
+POST /auth/register   {email, password}     -> the new user
+POST /auth/login      form: username=email&password=...  -> {access_token}
+GET  /auth/me         (bearer token)         -> the current user
+```
+
+**Authorization model:**
+
+- **Reading is public** — anyone can `GET` projects, sections, blocks, checkpoints.
+- **Authoring requires the owner** — creating a project sets you as its
+  `owner_id`; only the owner may add/delete its sections and blocks (else `403`,
+  or `401` if unauthenticated).
+- **Reading sessions require a login** — a session belongs to the authenticated
+  user (the old free-text `user_id` is gone); only that user can read, refresh,
+  or respond to it. One session per (project, user).
+
+```bash
+# register + log in
+curl -X POST localhost:8000/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email": "me@example.com", "password": "password123"}'
+
+TOKEN=$(curl -s -X POST localhost:8000/auth/login \
+  -d 'username=me@example.com&password=password123' | python -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
+
+# author a project (you become its owner)
+curl -X POST localhost:8000/projects -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" -d '{"name": "My Lesson"}'
+```
+
+> Config: set a real `JWT_SECRET_KEY` in production (the default is a dev
+> placeholder). Token lifetime is `ACCESS_TOKEN_EXPIRE_MINUTES`.
 
 ## Content model
 
@@ -95,8 +135,10 @@ The snapshot is a short **stability window**, not a permanent fork:
   python -m app.cleanup --max-age-seconds 3600
   ```
 
+All session routes require a bearer token; the user comes from it.
+
 ```
-POST /projects/{pid}/sessions                   {user_id}  -> snapshot (start or resume)
+POST /projects/{pid}/sessions                   (auth) -> snapshot (start or resume)
 GET  /projects/{pid}/sessions/{sid}             the reader's view (+ is_stale, latest_version)
 POST /projects/{pid}/sessions/{sid}/refresh     re-snapshot ("Get latest")
 POST /projects/{pid}/sessions/{sid}/checkpoints/{cid}/responses   {text?, link?, label?}
@@ -108,13 +150,12 @@ write gets **`409 Conflict`** instead of clobbering a newer edit; omitting the
 header is last-write-wins.
 
 ```bash
-# reader A pins a snapshot
-curl -X POST localhost:8000/projects/1/sessions \
-  -H "Content-Type: application/json" -d '{"user_id": "userA"}'
+# a logged-in reader pins a snapshot
+curl -X POST localhost:8000/projects/1/sessions -H "Authorization: Bearer $TOKEN"
 
-# editor B's stale write is rejected
+# editor's stale write is rejected
 curl -i -X POST localhost:8000/projects/1/sections/1/blocks \
-  -H "Content-Type: application/json" -H "If-Match: 1" \
+  -H "Authorization: Bearer $TOKEN" -H "If-Match: 1" \
   -d '{"type": "text", "text_content": "..."}'      # -> 409 if version moved on
 ```
 

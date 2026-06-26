@@ -7,6 +7,7 @@ from fastapi import FastAPI
 
 from app.config import settings
 from app.routers import (
+    auth,
     blocks,
     checkpoints,
     health,
@@ -18,6 +19,7 @@ from app.routers import (
 app = FastAPI(title=settings.app_name, debug=settings.debug)
 
 app.include_router(health.router)
+app.include_router(auth.router)
 app.include_router(projects.router)
 app.include_router(sections.router)
 app.include_router(blocks.router)

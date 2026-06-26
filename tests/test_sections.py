@@ -11,6 +11,7 @@ os.environ.setdefault("DATABASE_PATH", ":memory:")
 
 from fastapi.testclient import TestClient
 
+from _helpers import auth_header, login, token_for
 from app.main import app
 from app.store import reset_db
 
@@ -19,6 +20,7 @@ class TestSectionsFlow(unittest.TestCase):
     def setUp(self) -> None:
         self.client = TestClient(app)
         reset_db()
+        login(self.client)  # author, authenticated for the rest of the test
         self.project = self.client.post("/projects", json={"name": "P"}).json()
         self.section = self.client.post(
             f"/projects/{self.project['id']}/sections", json={"title": "Intro"}
@@ -156,6 +158,41 @@ class TestSectionsFlow(unittest.TestCase):
             with SessionLocal() as s:
                 s.add(SessionResponseORM(session_id=99999, checkpoint_id=1, text="x"))
                 s.commit()
+
+    # --- auth + ownership ---
+
+    def test_reads_are_public(self) -> None:
+        anon = TestClient(app)  # no Authorization header
+        self.assertEqual(anon.get("/projects").status_code, 200)
+        self.assertEqual(anon.get(self._blocks_url()).status_code, 200)
+
+    def test_write_requires_auth(self) -> None:
+        anon = TestClient(app)
+        self.assertEqual(
+            anon.post(
+                f"/projects/{self.project['id']}/sections", json={"title": "X"}
+            ).status_code,
+            401,
+        )
+
+    def test_non_owner_cannot_write(self) -> None:
+        other = TestClient(app)
+        other.headers.update(auth_header(token_for(other, "intruder@test.com")))
+        # A logged-in non-owner is forbidden from editing someone else's project.
+        self.assertEqual(
+            other.post(
+                f"/projects/{self.project['id']}/sections", json={"title": "X"}
+            ).status_code,
+            403,
+        )
+        self.assertEqual(
+            other.delete(self._section_url()).status_code, 403
+        )
+
+    def test_created_project_records_owner(self) -> None:
+        me = self.client.get("/auth/me").json()
+        project = self.client.get(f"/projects/{self.project['id']}").json()
+        self.assertEqual(project["owner_id"], me["id"])
 
 
 if __name__ == "__main__":

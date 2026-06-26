@@ -10,6 +10,7 @@ os.environ.setdefault("DATABASE_PATH", ":memory:")
 
 from fastapi.testclient import TestClient
 
+from _helpers import auth_header, login, token_for
 from app.main import app
 from app.store import reset_db
 
@@ -18,7 +19,8 @@ class TestReadingSessions(unittest.TestCase):
     def setUp(self) -> None:
         self.client = TestClient(app)
         reset_db()
-        # User B authors a project with one section and a couple of blocks.
+        login(self.client, "author@test.com")
+        # The author writes a project with one section and a couple of blocks.
         self.pid = self.client.post("/projects", json={"name": "P"}).json()["id"]
         self.sid = self.client.post(
             f"/projects/{self.pid}/sections", json={"title": "Intro"}
@@ -29,10 +31,9 @@ class TestReadingSessions(unittest.TestCase):
             self._blocks, json={"type": "checkpoint", "title": "Do it"}
         ).json()["checkpoint_id"]
 
-    def _start_session(self, user: str = "userA") -> dict:
-        return self.client.post(
-            f"/projects/{self.pid}/sessions", json={"user_id": user}
-        ).json()
+    def _start_session(self, user: str = "author@test.com") -> dict:
+        # Sessions belong to the authenticated user (already set on self.client).
+        return self.client.post(f"/projects/{self.pid}/sessions").json()
 
     def test_snapshot_isolated_from_author_edits(self) -> None:
         session = self._start_session()
@@ -160,25 +161,35 @@ class TestReadingSessions(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 201)
 
-    def test_responses_are_per_session(self) -> None:
-        a = self._start_session("userA")
-        b = self._start_session("userB")
+    def test_responses_are_per_user_session(self) -> None:
+        # Two distinct authenticated readers, each with their own session.
+        reader_a = TestClient(app)
+        reader_a.headers.update(auth_header(token_for(reader_a, "reader_a@test.com")))
+        reader_b = TestClient(app)
+        reader_b.headers.update(auth_header(token_for(reader_b, "reader_b@test.com")))
+
+        a = reader_a.post(f"/projects/{self.pid}/sessions").json()
+        b = reader_b.post(f"/projects/{self.pid}/sessions").json()
+        self.assertNotEqual(a["id"], b["id"])
+
         url_a = f"/projects/{self.pid}/sessions/{a['id']}/checkpoints/{self.checkpoint_id}/responses"
         url_b = f"/projects/{self.pid}/sessions/{b['id']}/checkpoints/{self.checkpoint_id}/responses"
 
-        self.assertEqual(self.client.post(url_a, json={"text": "A's answer"}).status_code, 201)
+        self.assertEqual(reader_a.post(url_a, json={"text": "A's answer"}).status_code, 201)
         self.assertEqual(
-            self.client.post(url_b, json={"link": "https://b.example.com"}).status_code, 201
+            reader_b.post(url_b, json={"link": "https://b.example.com"}).status_code, 201
         )
         # at least one of text/link required
-        self.assertEqual(self.client.post(url_a, json={}).status_code, 422)
+        self.assertEqual(reader_a.post(url_a, json={}).status_code, 422)
 
-        # Each reader sees only their own responses.
-        a_responses = self.client.get(url_a).json()
-        b_responses = self.client.get(url_b).json()
-        self.assertEqual([r["text"] for r in a_responses], ["A's answer"])
+        # Each reader sees only their own responses...
+        self.assertEqual([r["text"] for r in reader_a.get(url_a).json()], ["A's answer"])
+        b_responses = reader_b.get(url_b).json()
         self.assertEqual(len(b_responses), 1)
         self.assertIsNone(b_responses[0]["text"])
+
+        # ...and cannot touch the other reader's session (hidden as 404).
+        self.assertEqual(reader_b.get(url_a).status_code, 404)
 
     def test_response_for_unknown_checkpoint_404(self) -> None:
         session = self._start_session()

@@ -11,6 +11,7 @@ from pydantic import (
     AnyHttpUrl,
     BaseModel,
     ConfigDict,
+    EmailStr,
     Field,
     model_validator,
 )
@@ -19,6 +20,26 @@ from pydantic import (
 class HealthResponse(BaseModel):
     status: str
     app: str
+
+
+# --- Auth --------------------------------------------------------------------
+
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=8, max_length=128)
+
+
+class User(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    email: EmailStr
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
 
 
 # --- Project -> section -> content block -------------------------------------
@@ -40,6 +61,8 @@ class Project(ProjectCreate):
     id: int
     # Optimistic-concurrency token; bumped on every content edit.
     version: int
+    # The authoring user (null if the owner was deleted).
+    owner_id: Optional[int] = None
 
 
 class SectionCreate(BaseModel):
@@ -157,10 +180,6 @@ class ProjectSnapshot(BaseModel):
     project_id: int
     project_version: int
     sections: list[SnapshotSection] = []
-
-
-class ReadingSessionCreate(BaseModel):
-    user_id: str = Field(..., min_length=1, max_length=200)
 
 
 class ReadingSession(BaseModel):

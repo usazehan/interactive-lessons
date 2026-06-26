@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     database_path: str = "interactive_lessons.db"
     # Reading-session snapshots are ephemeral; prune ones idle longer than this.
     session_ttl_seconds: int = 7 * 24 * 3600  # 7 days
+    # Auth (JWT). OVERRIDE jwt_secret_key in production via JWT_SECRET_KEY.
+    jwt_secret_key: str = "dev-secret-change-me"
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 60 * 24  # 1 day
 
 
 settings = Settings()

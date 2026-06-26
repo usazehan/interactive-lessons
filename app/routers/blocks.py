@@ -6,10 +6,11 @@ position, so a client renders a section in one pass.
 """
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 
+from app.auth import get_current_user, require_project_owner
 from app.concurrency import require_matching_version
-from app.models import ContentBlock, ContentBlockCreate
+from app.models import ContentBlock, ContentBlockCreate, User
 from app.store import block_store, project_store, section_store
 
 router = APIRouter(
@@ -38,7 +39,9 @@ def create_block(
     payload: ContentBlockCreate,
     response: Response,
     if_match: Optional[str] = Header(default=None, alias="If-Match"),
+    current_user: User = Depends(get_current_user),
 ) -> ContentBlock:
+    require_project_owner(project_id, current_user)
     _require_section(project_id, section_id)
     require_matching_version(project_id, if_match)
     block = block_store.create(section_id, payload)
@@ -64,7 +67,9 @@ def delete_block(
     block_id: int,
     response: Response,
     if_match: Optional[str] = Header(default=None, alias="If-Match"),
+    current_user: User = Depends(get_current_user),
 ) -> None:
+    require_project_owner(project_id, current_user)
     _require_section(project_id, section_id)
     require_matching_version(project_id, if_match)
     if not block_store.delete(section_id, block_id):

@@ -6,8 +6,9 @@ os.environ.setdefault("DATABASE_PATH", ":memory:")
 
 from fastapi.testclient import TestClient
 
+from _helpers import auth_header, token_for
 from app.main import app
-from app.seed import seed
+from app.seed import SEED_AUTHOR_EMAIL, SEED_AUTHOR_PASSWORD, seed
 from app.store import reset_db
 
 
@@ -20,11 +21,13 @@ class TestSeed(unittest.TestCase):
         projects = seed()
         self.assertGreaterEqual(len(projects), 1)
 
-        # Projects are queryable through the API.
+        # Projects are queryable through the API (public read).
         listed = self.client.get("/projects").json()
         self.assertEqual(len(listed), len(projects))
 
-        # And a section can be added to a seeded project.
+        # The seed author can add a section to their seeded project.
+        token = token_for(self.client, SEED_AUTHOR_EMAIL, SEED_AUTHOR_PASSWORD)
+        self.client.headers.update(auth_header(token))
         target = projects[-1]
         resp = self.client.post(
             f"/projects/{target.id}/sections", json={"title": "New section"}

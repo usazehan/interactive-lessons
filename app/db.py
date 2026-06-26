@@ -72,6 +72,18 @@ class Base(DeclarativeBase):
     pass
 
 
+class UserORM(Base):
+    __tablename__ = "users"
+    __table_args__ = {"sqlite_autoincrement": True}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True, index=True)
+    hashed_password: Mapped[str] = mapped_column(String(200), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow
+    )
+
+
 class ProjectORM(Base):
     __tablename__ = "projects"
     __table_args__ = {"sqlite_autoincrement": True}
@@ -81,6 +93,10 @@ class ProjectORM(Base):
     description: Mapped[Optional[str]] = mapped_column(String(2000), nullable=True)
     # Bumped on every content edit; used for optimistic concurrency (If-Match).
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # The authoring user. Null if the owner was deleted.
+    owner_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     sections: Mapped[list["ProjectSectionORM"]] = relationship(
         back_populates="project",
