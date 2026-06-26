@@ -15,9 +15,11 @@ app/
   models.py      # Pydantic request/response schemas
   db.py          # SQLAlchemy engine, session, ORM tables
   store.py       # repository mapping ORM <-> Pydantic (same interface as before)
-  auth.py        # password hashing, JWT, current-user dependency
+  auth.py        # password hashing, tokens, current-user / role / verified deps
+  email.py       # outbound email (console backend by default)
   seed.py        # sample happy-path data (python -m app.seed)
   cleanup.py     # prune idle reading sessions (python -m app.cleanup)
+  promote.py     # grant admin (python -m app.promote <email>)
   concurrency.py # optimistic-locking helper (If-Match -> 409)
   routers/
     health.py      # GET /health
@@ -32,41 +34,60 @@ tests/           # unittest + TestClient (in-memory DB)
 
 ## Authentication
 
-Register and log in for a JWT access token; send it as
-`Authorization: Bearer <token>` on protected requests.
+Log in for a **short-lived access token** (bearer) + a **refresh token**.
+Send the access token as `Authorization: Bearer <token>`; rotate it via
+`/auth/refresh`; revoke it via `/auth/logout`.
 
 ```
-POST /auth/register   {email, password}     -> the new user
-POST /auth/login      form: username=email&password=...  -> {access_token}
-GET  /auth/me         (bearer token)         -> the current user
+POST /auth/register         {email, password}            -> the new (unverified) user
+POST /auth/login            form: username=email&password -> {access_token, refresh_token}
+POST /auth/refresh          {refresh_token}               -> a new token pair (old one consumed)
+POST /auth/logout           {refresh_token}               -> 204 (token revoked)
+GET  /auth/me               (bearer)                      -> the current user
+POST /auth/verify-email     {token}                       -> marks the email verified
+POST /auth/forgot-password  {email}                       -> emails a reset link (always 202)
+POST /auth/reset-password   {token, new_password}         -> 204 (revokes all refresh tokens)
 ```
 
 **Authorization model:**
 
 - **Reading is public** — anyone can `GET` projects, sections, blocks, checkpoints.
-- **Authoring requires the owner** — creating a project sets you as its
-  `owner_id`; only the owner may add/delete its sections and blocks (else `403`,
-  or `401` if unauthenticated).
+- **Authoring requires a verified owner** — creating a project requires a
+  verified email (`403` otherwise) and sets you as its `owner_id`; only the
+  owner may add/delete its sections and blocks. **Admins** bypass ownership.
 - **Reading sessions require a login** — a session belongs to the authenticated
-  user (the old free-text `user_id` is gone); only that user can read, refresh,
-  or respond to it. One session per (project, user).
+  user; only that user can read, refresh, or respond to it. One per (project, user).
+
+Tokens: refresh tokens are stored server-side **hashed** and revoked on logout,
+rotation, and password reset. Access tokens are stateless JWTs.
 
 ```bash
-# register + log in
+# register, then verify (the link is logged by the console email backend)
 curl -X POST localhost:8000/auth/register \
   -H "Content-Type: application/json" \
   -d '{"email": "me@example.com", "password": "password123"}'
+# -> server logs: .../verify-email?token=XYZ
+curl -X POST localhost:8000/auth/verify-email -H "Content-Type: application/json" \
+  -d '{"token": "XYZ"}'
 
-TOKEN=$(curl -s -X POST localhost:8000/auth/login \
-  -d 'username=me@example.com&password=password123' | python -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
-
-# author a project (you become its owner)
-curl -X POST localhost:8000/projects -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" -d '{"name": "My Lesson"}'
+# log in -> access + refresh
+curl -s -X POST localhost:8000/auth/login \
+  -d 'username=me@example.com&password=password123'
 ```
 
-> Config: set a real `JWT_SECRET_KEY` in production (the default is a dev
-> placeholder). Token lifetime is `ACCESS_TOKEN_EXPIRE_MINUTES`.
+**Roles:** promote a user to admin out of band (no HTTP endpoint):
+
+```bash
+python -m app.promote me@example.com
+```
+
+> **Email** uses a console backend (`app/email.py`) — it logs the
+> verification / reset link instead of sending it. Swap in SMTP/a provider for
+> production.
+>
+> **Config:** set a real `JWT_SECRET_KEY` in production (the default is a dev
+> placeholder). See `ACCESS_TOKEN_EXPIRE_MINUTES`, `REFRESH_TOKEN_EXPIRE_DAYS`,
+> `RESET_TOKEN_EXPIRE_MINUTES`.
 
 ## Content model
 

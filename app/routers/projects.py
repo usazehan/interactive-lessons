@@ -6,7 +6,7 @@ via If-Match on content edits.
 """
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
-from app.auth import get_current_user, require_project_owner
+from app.auth import get_current_user, require_project_owner, require_verified_user
 from app.models import Project, ProjectCreate, User
 from app.store import project_store
 
@@ -20,7 +20,7 @@ def list_projects() -> list[Project]:
 
 @router.post("", response_model=Project, status_code=status.HTTP_201_CREATED)
 def create_project(
-    payload: ProjectCreate, current_user: User = Depends(get_current_user)
+    payload: ProjectCreate, current_user: User = Depends(require_verified_user)
 ) -> Project:
     return project_store.create(payload, owner_id=current_user.id)
 

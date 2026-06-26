@@ -22,7 +22,11 @@ class Settings(BaseSettings):
     # Auth (JWT). OVERRIDE jwt_secret_key in production via JWT_SECRET_KEY.
     jwt_secret_key: str = "dev-secret-change-me"
     jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 60 * 24  # 1 day
+    access_token_expire_minutes: int = 15
+    refresh_token_expire_days: int = 7
+    reset_token_expire_minutes: int = 60
+    # Used to build links in verification / reset emails.
+    app_base_url: str = "http://localhost:8000"
 
 
 settings = Settings()

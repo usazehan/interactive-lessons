@@ -34,9 +34,12 @@ def seed() -> list[Project]:
     """Create a sample author, their projects, and a worked section."""
     author = user_store.get_orm_by_email(SEED_AUTHOR_EMAIL)
     if author is None:
-        author = user_store.create(
-            SEED_AUTHOR_EMAIL, hash_password(SEED_AUTHOR_PASSWORD)
+        token = "seed-verification-token"
+        user_store.create(
+            SEED_AUTHOR_EMAIL, hash_password(SEED_AUTHOR_PASSWORD), token
         )
+        user_store.verify_by_token(token)  # seed author is ready to author
+        author = user_store.get_orm_by_email(SEED_AUTHOR_EMAIL)
     projects = [project_store.create(p, owner_id=author.id) for p in SAMPLE_PROJECTS]
 
     section = section_store.create(

@@ -19,6 +19,7 @@ from app.db import (
     ProjectORM,
     ProjectSectionORM,
     ReadingSessionORM,
+    RefreshTokenORM,
     SessionLocal,
     SessionResponseORM,
     UserORM,
@@ -56,13 +57,118 @@ class UserStore:
         with SessionLocal() as session:
             return session.query(UserORM).filter_by(email=email).one_or_none()
 
-    def create(self, email: str, hashed_password: str) -> User:
+    def create(
+        self, email: str, hashed_password: str, verification_token: Optional[str] = None
+    ) -> User:
         with SessionLocal() as session:
-            row = UserORM(email=email, hashed_password=hashed_password)
+            row = UserORM(
+                email=email,
+                hashed_password=hashed_password,
+                verification_token=verification_token,
+            )
             session.add(row)
             session.commit()
             session.refresh(row)
             return User.model_validate(row)
+
+    def verify_by_token(self, token: str) -> Optional[User]:
+        with SessionLocal() as session:
+            row = session.query(UserORM).filter_by(verification_token=token).one_or_none()
+            if row is None:
+                return None
+            row.is_verified = True
+            row.verification_token = None
+            session.commit()
+            session.refresh(row)
+            return User.model_validate(row)
+
+    def set_reset_token(self, email: str, token: str, expires) -> bool:
+        with SessionLocal() as session:
+            row = session.query(UserORM).filter_by(email=email).one_or_none()
+            if row is None:
+                return False
+            row.reset_token = token
+            row.reset_token_expires = expires
+            session.commit()
+            return True
+
+    def reset_password_by_token(self, token: str, hashed_password: str) -> Optional[int]:
+        """Set a new password if the reset token is valid+unexpired. Returns user id."""
+        with SessionLocal() as session:
+            row = session.query(UserORM).filter_by(reset_token=token).one_or_none()
+            if row is None or row.reset_token_expires is None:
+                return None
+            if row.reset_token_expires < datetime.utcnow():
+                return None
+            row.hashed_password = hashed_password
+            row.reset_token = None
+            row.reset_token_expires = None
+            session.commit()
+            return row.id
+
+    def set_role(self, user_id: int, role: str) -> Optional[User]:
+        with SessionLocal() as session:
+            row = session.get(UserORM, user_id)
+            if row is None:
+                return None
+            row.role = role
+            session.commit()
+            session.refresh(row)
+            return User.model_validate(row)
+
+
+class RefreshTokenStore:
+    """Server-side refresh tokens (stored hashed) so they can be revoked.
+
+    Callers pass the *hash* of the token (see app.auth.hash_token); the raw
+    token only ever lives in the client.
+    """
+
+    def create(self, user_id: int, token_hash: str, expires_at) -> None:
+        with SessionLocal() as session:
+            session.add(
+                RefreshTokenORM(
+                    user_id=user_id, token_hash=token_hash, expires_at=expires_at
+                )
+            )
+            session.commit()
+
+    def consume(self, token_hash: str) -> Optional[int]:
+        """If the token is active, revoke it and return its user id (rotation)."""
+        with SessionLocal() as session:
+            row = (
+                session.query(RefreshTokenORM)
+                .filter_by(token_hash=token_hash, revoked=False)
+                .one_or_none()
+            )
+            if row is None or row.expires_at < datetime.utcnow():
+                return None
+            row.revoked = True
+            session.commit()
+            return row.user_id
+
+    def revoke(self, token_hash: str) -> bool:
+        with SessionLocal() as session:
+            row = (
+                session.query(RefreshTokenORM)
+                .filter_by(token_hash=token_hash, revoked=False)
+                .one_or_none()
+            )
+            if row is None:
+                return False
+            row.revoked = True
+            session.commit()
+            return True
+
+    def revoke_all_for_user(self, user_id: int) -> int:
+        with SessionLocal() as session:
+            count = (
+                session.query(RefreshTokenORM)
+                .filter_by(user_id=user_id, revoked=False)
+                .update({"revoked": True}, synchronize_session=False)
+            )
+            session.commit()
+            return count
 
 
 class ProjectStore:
@@ -443,12 +549,14 @@ def reset_db() -> None:
         session.execute(sa_delete(CheckpointORM))
         session.execute(sa_delete(ProjectSectionORM))
         session.execute(sa_delete(ProjectORM))
+        session.execute(sa_delete(RefreshTokenORM))
         session.execute(sa_delete(UserORM))
         session.execute(text("DELETE FROM sqlite_sequence"))
         session.commit()
 
 
 user_store = UserStore()
+refresh_token_store = RefreshTokenStore()
 project_store = ProjectStore()
 section_store = SectionStore()
 block_store = ContentBlockStore()

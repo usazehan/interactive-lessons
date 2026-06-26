@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Optional
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     Engine,
     ForeignKey,
@@ -79,6 +80,37 @@ class UserORM(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String(200), nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False, default="user")
+    is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    verification_token: Mapped[Optional[str]] = mapped_column(
+        String(128), nullable=True, index=True
+    )
+    reset_token: Mapped[Optional[str]] = mapped_column(
+        String(128), nullable=True, index=True
+    )
+    reset_token_expires: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow
+    )
+
+
+class RefreshTokenORM(Base):
+    """A server-side, revocable refresh token (stored hashed)."""
+
+    __tablename__ = "refresh_tokens"
+    __table_args__ = {"sqlite_autoincrement": True}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    token_hash: Mapped[str] = mapped_column(
+        String(64), nullable=False, unique=True, index=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=datetime.utcnow
     )
