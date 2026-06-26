@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { listProjects, type Project } from "@/lib/api";
@@ -40,13 +41,18 @@ export default function Home() {
       ) : (
         <ul className="divide-y divide-black/10 dark:divide-white/10">
           {projects?.map((p) => (
-            <li key={p.id} className="py-3">
-              <div className="font-medium">{p.name}</div>
-              {p.description && (
-                <div className="text-sm text-black/60 dark:text-white/60">
-                  {p.description}
-                </div>
-              )}
+            <li key={p.id}>
+              <Link
+                href={`/projects/${p.id}`}
+                className="-mx-2 block rounded px-2 py-3 hover:bg-black/[0.03] dark:hover:bg-white/5"
+              >
+                <div className="font-medium">{p.name}</div>
+                {p.description && (
+                  <div className="text-sm text-black/60 dark:text-white/60">
+                    {p.description}
+                  </div>
+                )}
+              </Link>
             </li>
           ))}
         </ul>

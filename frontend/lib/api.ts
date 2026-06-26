@@ -24,6 +24,34 @@ export type Project = {
   owner_id: number | null;
 };
 
+export type Section = {
+  id: number;
+  project_id: number;
+  position: number;
+  title: string | null;
+};
+
+export type Checkpoint = {
+  id: number;
+  section_id: number;
+  title: string;
+};
+
+export type BlockType = "text" | "image" | "code_block" | "checkpoint";
+
+export type ContentBlock = {
+  id: number;
+  section_id: number;
+  position: number;
+  type: BlockType;
+  text_content: string | null;
+  code_content: string | null;
+  image_url: string | null;
+  keyword_metadata: string | null;
+  checkpoint_id: number | null;
+  checkpoint: Checkpoint | null;
+};
+
 export type Tokens = {
   access_token: string;
   refresh_token: string;
@@ -153,4 +181,14 @@ export const createProject = (name: string, description?: string) =>
     "/projects",
     { method: "POST", body: JSON.stringify({ name, description }) },
     true,
+  );
+
+// --- sections + blocks ---
+
+export const listSections = (projectId: number) =>
+  request<Section[]>(`/projects/${projectId}/sections`);
+
+export const listBlocks = (projectId: number, sectionId: number) =>
+  request<ContentBlock[]>(
+    `/projects/${projectId}/sections/${sectionId}/blocks`,
   );
