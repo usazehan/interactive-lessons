@@ -37,6 +37,34 @@ export type Checkpoint = {
   title: string;
 };
 
+export type SnapshotSection = Section & { blocks: ContentBlock[] };
+
+export type ProjectSnapshot = {
+  project_id: number;
+  project_version: number;
+  sections: SnapshotSection[];
+};
+
+export type ReadingSession = {
+  id: number;
+  project_id: number;
+  user_id: string;
+  project_version: number;
+  latest_version: number;
+  is_stale: boolean;
+  last_accessed_at: string;
+  snapshot: ProjectSnapshot;
+};
+
+export type SessionResponse = {
+  id: number;
+  session_id: number;
+  checkpoint_id: number;
+  text: string | null;
+  link: string | null;
+  label: string | null;
+};
+
 export type BlockType = "text" | "image" | "code_block" | "checkpoint";
 
 export type ContentBlock = {
@@ -191,4 +219,43 @@ export const listSections = (projectId: number) =>
 export const listBlocks = (projectId: number, sectionId: number) =>
   request<ContentBlock[]>(
     `/projects/${projectId}/sections/${sectionId}/blocks`,
+  );
+
+// --- reading sessions + responses (auth required) ---
+
+export const startSession = (projectId: number) =>
+  request<ReadingSession>(
+    `/projects/${projectId}/sessions`,
+    { method: "POST" },
+    true,
+  );
+
+export const refreshSession = (projectId: number, sessionId: number) =>
+  request<ReadingSession>(
+    `/projects/${projectId}/sessions/${sessionId}/refresh`,
+    { method: "POST" },
+    true,
+  );
+
+export const listResponses = (
+  projectId: number,
+  sessionId: number,
+  checkpointId: number,
+) =>
+  request<SessionResponse[]>(
+    `/projects/${projectId}/sessions/${sessionId}/checkpoints/${checkpointId}/responses`,
+    {},
+    true,
+  );
+
+export const addResponse = (
+  projectId: number,
+  sessionId: number,
+  checkpointId: number,
+  body: { text?: string; link?: string; label?: string },
+) =>
+  request<SessionResponse>(
+    `/projects/${projectId}/sessions/${sessionId}/checkpoints/${checkpointId}/responses`,
+    { method: "POST", body: JSON.stringify(body) },
+    true,
   );
